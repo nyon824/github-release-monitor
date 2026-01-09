@@ -55,11 +55,39 @@ jobs:
             echo "has_update=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Translate if English
+        if: steps.check.outputs.has_update == 'true'
+        run: |
+          BODY=$(cat /tmp/release_body.txt | head -c 1500)
+          
+          # 检测是否主要是英文（ASCII字符占比超过70%）
+          TOTAL_CHARS=$(echo "$BODY" | wc -c)
+          ASCII_CHARS=$(echo "$BODY" | tr -cd '\000-\177' | wc -c)
+          
+          if [ "$TOTAL_CHARS" -gt 0 ]; then
+            RATIO=$((ASCII_CHARS * 100 / TOTAL_CHARS))
+          else
+            RATIO=0
+          fi
+          
+          if [ "$RATIO" -gt 70 ]; then
+            # 英文内容，调用翻译API
+            ENCODED_BODY=$(echo "$BODY" | jq -sRr @uri)
+            TRANSLATED=$(curl -s "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${ENCODED_BODY}" | jq -r '.[0][][0]' | tr -d '\n' | head -c 1500)
+            if [ -n "$TRANSLATED" ] && [ "$TRANSLATED" != "null" ]; then
+              echo "$TRANSLATED" > /tmp/release_body_final.txt
+            else
+              echo "$BODY" > /tmp/release_body_final.txt
+            fi
+          else
+            echo "$BODY" > /tmp/release_body_final.txt
+          fi
+
       - name: Send Feishu notification
         if: steps.check.outputs.has_update == 'true'
         run: |
           # 读取更新内容并转义
-          BODY=$(cat /tmp/release_body.txt | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g' | head -c 1000)
+          BODY=$(cat /tmp/release_body_final.txt | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g' | head -c 1000)
           
           curl -X POST "${{ secrets.FEISHU_WEBHOOK }}" \
             -H "Content-Type: application/json" \
