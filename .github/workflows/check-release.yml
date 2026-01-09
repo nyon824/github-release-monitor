@@ -71,9 +71,10 @@ jobs:
           fi
           
           if [ "$RATIO" -gt 70 ]; then
-            # 英文内容，调用翻译API
-            ENCODED_BODY=$(echo "$BODY" | jq -sRr @uri)
-            TRANSLATED=$(curl -s "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${ENCODED_BODY}" | jq -r '.[0][][0]' | tr -d '\n' | head -c 1500)
+            # 英文内容，调用翻译API（保留换行符标记）
+            BODY_WITH_MARKER=$(echo "$BODY" | sed 's/\* /\n• /g' | sed 's/^- /• /g')
+            ENCODED_BODY=$(echo "$BODY_WITH_MARKER" | jq -sRr @uri)
+            TRANSLATED=$(curl -s "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${ENCODED_BODY}" | jq -r '.[0][][0]' | head -c 1500)
             if [ -n "$TRANSLATED" ] && [ "$TRANSLATED" != "null" ]; then
               echo "$TRANSLATED" > /tmp/release_body_final.txt
             else
