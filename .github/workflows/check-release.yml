@@ -1,0 +1,73 @@
+name: Check GitHub Release
+
+on:
+  schedule:
+    # 每小时检查一次 (UTC 时间)
+    - cron: '0 * * * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check latest release
+        id: check
+        run: |
+          # 获取最新版本
+          LATEST=$(curl -s https://api.github.com/repos/router-for-me/CLIProxyAPIPlus/releases/latest | jq -r '.tag_name')
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+          
+          # 读取上次记录的版本
+          CURRENT=$(curl -s "https://api.github.com/repos/${{ github.repository }}/contents/version.txt" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" | jq -r '.content' | base64 -d 2>/dev/null || echo "")
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          
+          if [ "$LATEST" != "$CURRENT" ] && [ -n "$LATEST" ]; then
+            echo "has_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Feishu notification
+        if: steps.check.outputs.has_update == 'true'
+        run: |
+          curl -X POST "${{ secrets.FEISHU_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "msg_type": "interactive",
+              "card": {
+                "header": {
+                  "title": {"tag": "plain_text", "content": "🚀 CLIProxyAPIPlus 新版本发布"},
+                  "template": "blue"
+                },
+                "elements": [
+                  {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": "**最新版本**: ${{ steps.check.outputs.latest }}"}
+                  },
+                  {
+                    "tag": "action",
+                    "actions": [
+                      {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "查看发布页面"},
+                        "url": "https://github.com/router-for-me/CLIProxyAPIPlus/releases",
+                        "type": "primary"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }'
+
+      - name: Update version file
+        if: steps.check.outputs.has_update == 'true'
+        run: |
+          echo "${{ steps.check.outputs.latest }}" > version.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.txt
+          git commit -m "Update version to ${{ steps.check.outputs.latest }}" || true
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
