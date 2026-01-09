@@ -87,8 +87,8 @@ jobs:
       - name: Send Feishu notification
         if: steps.check.outputs.has_update == 'true'
         run: |
-          # 读取更新内容（增加到3000字符）
-          BODY=$(cat /tmp/release_body_final.txt | head -c 3000)
+          # 读取全部更新内容
+          BODY=$(cat /tmp/release_body_final.txt)
           
           # 转义JSON特殊字符
           BODY_ESCAPED=$(echo "$BODY" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" | sed 's/^"//;s/"$//')
@@ -103,10 +103,7 @@ jobs:
                     \"title\": \"🚀 ${{ matrix.name }} 新版本发布\",
                     \"content\": [
                       [{\"tag\": \"text\", \"text\": \"最新版本: ${{ steps.check.outputs.latest }}\"}],
-                      [{\"tag\": \"text\", \"text\": \"\"}],
-                      [{\"tag\": \"text\", \"text\": \"更新内容:\"}],
-                      [{\"tag\": \"text\", \"text\": \"${BODY_ESCAPED}\"}],
-                      [{\"tag\": \"text\", \"text\": \"\"}],
+                      [{\"tag\": \"text\", \"text\": \"更新内容: ${BODY_ESCAPED}\"}],
                       [{\"tag\": \"a\", \"text\": \"查看发布页面\", \"href\": \"https://github.com/${{ matrix.repo }}/releases\"}]
                     ]
                   }
