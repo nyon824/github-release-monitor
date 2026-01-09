@@ -12,12 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ========== 在这里添加要监控的仓库 ==========
           - repo: router-for-me/CLIProxyAPIPlus
             name: CLIProxyAPIPlus
           - repo: 2dust/v2rayN
             name: v2rayN
-          # ==========================================
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,18 +26,14 @@ jobs:
           REPO="${{ matrix.repo }}"
           SAFE_NAME=$(echo "$REPO" | tr '/' '_')
           
-          # 获取最新版本信息（不限制字数）
           RELEASE_JSON=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest")
           LATEST=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
           RELEASE_BODY=$(echo "$RELEASE_JSON" | jq -r '.body // "无更新说明"')
           
           echo "latest=$LATEST" >> $GITHUB_OUTPUT
           echo "safe_name=$SAFE_NAME" >> $GITHUB_OUTPUT
-          
-          # 保存更新内容到文件
           echo "$RELEASE_BODY" > /tmp/release_body.txt
           
-          # 读取本地记录的版本
           VERSION_FILE="versions/${SAFE_NAME}.txt"
           if [ -f "$VERSION_FILE" ]; then
             CURRENT=$(cat "$VERSION_FILE")
@@ -58,8 +52,6 @@ jobs:
         if: steps.check.outputs.has_update == 'true'
         run: |
           BODY=$(cat /tmp/release_body.txt)
-          
-          # 检测是否主要是英文
           TOTAL_CHARS=$(echo "$BODY" | wc -c)
           ASCII_CHARS=$(echo "$BODY" | tr -cd '\000-\177' | wc -c)
           
@@ -70,7 +62,6 @@ jobs:
           fi
           
           if [ "$RATIO" -gt 70 ]; then
-            # 英文内容，调用翻译API
             ENCODED_BODY=$(echo "$BODY" | jq -sRr @uri)
             TRANSLATED=$(curl -s "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${ENCODED_BODY}" | jq -r '.[0][][0]')
             if [ -n "$TRANSLATED" ] && [ "$TRANSLATED" != "null" ]; then
@@ -86,20 +77,36 @@ jobs:
         if: steps.check.outputs.has_update == 'true'
         run: |
           BODY=$(cat /tmp/release_body_final.txt)
+          REPO="${{ matrix.repo }}"
+          NAME="${{ matrix.name }}"
+          VERSION="${{ steps.check.outputs.latest }}"
           
-          # 构建消息文本
-          TEXT="🚀 ${{ matrix.name }} 新版本发布
-最新版本: ${{ steps.check.outputs.latest }}
-更新内容:
-${BODY}
-查看: https://github.com/${{ matrix.repo }}/releases"
+          python3 << 'EOF'
+          import json
+          import os
+          import urllib.request
           
-          # 转义JSON
-          TEXT_ESCAPED=$(echo "$TEXT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+          body = open('/tmp/release_body_final.txt').read()
+          name = os.environ.get('NAME', '')
+          version = os.environ.get('VERSION', '')
+          repo = os.environ.get('REPO', '')
+          webhook = os.environ.get('WEBHOOK', '')
           
-          curl -X POST "${{ secrets.FEISHU_WEBHOOK }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"msg_type\": \"text\", \"content\": {\"text\": ${TEXT_ESCAPED}}}"
+          text = f"""🚀 {name} 新版本发布
+          最新版本: {version}
+          更新内容:
+          {body}
+          查看: https://github.com/{repo}/releases"""
+          
+          payload = json.dumps({"msg_type": "text", "content": {"text": text}}).encode('utf-8')
+          req = urllib.request.Request(webhook, data=payload, headers={'Content-Type': 'application/json'})
+          urllib.request.urlopen(req)
+          EOF
+        env:
+          NAME: ${{ matrix.name }}
+          VERSION: ${{ steps.check.outputs.latest }}
+          REPO: ${{ matrix.repo }}
+          WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
 
       - name: Update version file
         if: steps.check.outputs.has_update == 'true'
